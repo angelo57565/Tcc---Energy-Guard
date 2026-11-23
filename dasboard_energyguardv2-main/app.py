@@ -1,0 +1,198 @@
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
+
+import requests
+import streamlit as st
+from PIL import Image
+
+import tabs
+import ui
+from auth import logout_button, require_login
+from client import Api
+from helpers import age_seconds, reporting_coverage, short_summary, to_dataframe
+from telemetry import incremental_readings
+from theme import build_css
+from presentation import FONT_SIZES, TABLE_MODES, device_state, status_time
+
+ASSETS = Path(__file__).parent / "assets"
+st.set_page_config(page_title="EnergyGuard", page_icon=Image.open(ASSETS / "favicon.png"), layout="wide")
+protected = require_login()
+
+PERIODS = {"15 minutos": 0.25, "1 hora": 1, "6 horas": 6, "24 horas": 24}
+THEME_OPTIONS = ["Escuro", "Claro (alto contraste)"]
+OFFLINE_AFTER_S = 30
+
+with st.sidebar:
+    brand_slot = st.container()
+    if protected:
+        logout_button()
+    theme_slot = st.container()
+    device_slot = st.container()
+    period_slot = st.container()
+    refresh_slot = st.container()
+    config_slot = st.expander("Configurações")
+    conn_slot = st.expander("Conexão com a API")
+
+with conn_slot:
+    api_url = st.text_input("URL da API", os.getenv("API_URL", "http://localhost:8000")).rstrip("/")
+    api_key = st.text_input("API key", os.getenv("API_KEY", ""), type="password")
+api = Api(api_url, api_key)
+
+with theme_slot:
+    st.subheader("Aparência")
+    if "tema_radio" not in st.session_state:
+        st.session_state["tema_radio"] = THEME_OPTIONS[1 if st.query_params.get("tema") == "claro" else 0]
+    choice = st.radio("Tema", THEME_OPTIONS, horizontal=True, key="tema_radio")
+    theme = "light" if choice == THEME_OPTIONS[1] else "dark"
+    st.query_params["tema"] = "claro" if theme == "light" else "escuro"
+
+    if "font_size_choice" not in st.session_state:
+        selected_font = st.query_params.get("fonte", "16")
+        st.session_state["font_size_choice"] = next(
+            (label for label, pixels in FONT_SIZES.items() if str(pixels) == selected_font), "Normal"
+        )
+    selected_size = st.selectbox("Tamanho da letra", list(FONT_SIZES), key="font_size_choice")
+    font_px = FONT_SIZES[selected_size]
+    st.query_params["fonte"] = str(font_px)
+    st.selectbox("Visualização das tabelas", TABLE_MODES, index=1, key="table_mode",
+                 help="O modo completo mantém todas as colunas. Você pode ordenar e ampliar as tabelas.")
+
+with st.sidebar:
+    st.markdown(build_css(theme, font_px), unsafe_allow_html=True)
+with brand_slot:
+    ui.brand()
+
+if st.session_state.get("cfg_source") != api_url:
+    st.session_state["cfg_source"] = api_url
+    st.session_state["cfg_ready"] = False
+
+if not st.session_state.get("cfg_ready"):
+    cfg = {"tariff": 0.90, "nominal_voltage": 127, "monthly_goal_kwh": 0.0, "send_interval_s": 5}
+    try:
+        cfg.update(api.get("/api/settings"))
+    except requests.RequestException:
+        pass
+    nominal0 = int(cfg["nominal_voltage"])
+    st.session_state.update(
+        cfg_tariff=float(cfg["tariff"]),
+        cfg_nominal=nominal0 if nominal0 in (127, 220) else 127,
+        cfg_goal=float(cfg["monthly_goal_kwh"]),
+        cfg_interval=int(cfg["send_interval_s"]),
+        cfg_ready=True,
+    )
+
+with config_slot:
+    st.number_input("Tarifa (R$/kWh)", min_value=0.0, step=0.05, format="%.2f", key="cfg_tariff")
+    st.selectbox("Tensão nominal da rede (V)", [127, 220], key="cfg_nominal")
+    st.number_input("Meta mensal (kWh, 0 = sem meta)", min_value=0.0, step=10.0, key="cfg_goal")
+    st.number_input("Intervalo de envio do ESP32 (s)", min_value=1, step=1, key="cfg_interval")
+    if st.button("Salvar configurações", type="primary"):
+        try:
+            api.put("/api/settings", json={
+                "tariff": float(st.session_state.cfg_tariff),
+                "nominal_voltage": float(st.session_state.cfg_nominal),
+                "monthly_goal_kwh": float(st.session_state.cfg_goal),
+                "send_interval_s": float(st.session_state.cfg_interval),
+            })
+            st.session_state["cfg_ready"] = False
+            st.success("Configurações salvas.")
+        except requests.RequestException as exc:
+            st.error(f"Não consegui salvar: {exc}")
+
+with period_slot:
+    period_label = st.selectbox("Período", list(PERIODS), index=1)
+
+with refresh_slot:
+    auto = st.toggle("Atualizar automaticamente", value=True)
+    every = st.slider("Intervalo (s)", 5, 60, 10) if auto else None
+    st.button("Atualizar agora")
+
+hours = PERIODS[period_label]
+
+try:
+    devices = api.get("/api/devices")
+except requests.RequestException as exc:
+    ui.connection_panel(None, api_error=True)
+    ui.banner("danger", f"Não consegui falar com a API em {api_url}: {exc}")
+    st.stop()
+
+if not devices:
+    ui.connection_panel(None)
+    ui.banner("info", "Nenhum dispositivo ou leitura foi encontrado na API. Verifique a alimentação e o Wi-Fi do ESP32.")
+    st.stop()
+
+with device_slot:
+    device = st.selectbox("Dispositivo", [d["device_id"] for d in devices])
+
+ctx = SimpleNamespace(
+    api=api, device=device, theme=theme, auto=auto,
+    tariff=float(st.session_state.cfg_tariff), nominal=int(st.session_state.cfg_nominal),
+    goal=float(st.session_state.cfg_goal), interval=float(st.session_state.cfg_interval),
+    font_scale=font_px / 16.0,
+)
+
+
+def render() -> None:
+    hours_int = max(1, int(hours))
+    since_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
+    since = since_dt.isoformat()
+    try:
+        latest = api.get("/api/readings/latest", device_id=device)
+        cache_key = (api_url, device, period_label)
+        cached = st.session_state.get("_readings_cache", {})
+        old = cached.get("rows") if cached.get("key") == cache_key else None
+        rows = incremental_readings(api, device, since, old)
+        st.session_state["_readings_cache"] = {"key": cache_key, "rows": rows}
+        df = to_dataframe(rows)
+        summary = short_summary(df) if hours < 1 else api.get("/api/summary", device_id=device, hours=hours_int)
+        try:
+            anomalies = api.get("/api/anomalies", device_id=device, limit=200)
+        except requests.RequestException:
+            anomalies = []
+        try:
+            model = api.get("/api/model/status")
+        except requests.RequestException:
+            model = {"ready": False}
+    except requests.RequestException as exc:
+        ui.connection_panel(None, api_error=True)
+        ui.banner("danger", f"Erro ao consultar a API: {exc}")
+        return
+
+    age = age_seconds(latest["created_at"])
+    connection = device_state(age, ctx.interval)
+    online = connection.fresh
+    ui.header(device, connection, datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%H:%M:%S"),
+              status_time(latest.get("created_at")))
+
+    coverage = reporting_coverage(df, since_dt, datetime.now(timezone.utc), ctx.interval)
+    data = dict(latest=latest, rows=rows, df=df, summary=summary, anomalies=anomalies,
+                model=model, hours=hours, hours_int=hours_int, age=age, online=online,
+                coverage=coverage, short_window=hours < 1, connection=connection)
+
+    t = st.tabs(["Visão geral", "Medições", "Consumo", f"Anomalias ({len(anomalies)})",
+                 "Tipos de anomalia", "Ocorrências", "Alertas", "Sistema"])
+    with t[0]:
+        tabs.overview(ctx, data)
+    with t[1]:
+        tabs.charts_tab(ctx, data)
+    with t[2]:
+        tabs.consumption(ctx, data)
+    with t[3]:
+        tabs.anomalies_tab(ctx, data)
+    with t[4]:
+        tabs.anomaly_types_tab(ctx, data)
+    with t[5]:
+        tabs.events_tab(ctx, data)
+    with t[6]:
+        tabs.alerts_tab(ctx, data)
+    with t[7]:
+        tabs.system_tab(ctx, data)
+
+
+if auto:
+    st.fragment(run_every=every)(render)()
+else:
+    render()
