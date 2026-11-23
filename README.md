@@ -222,7 +222,8 @@ O projeto utiliza componentes acessíveis, mas **o custo total não foi informad
 
 ## 👩‍💻 Integrantes
 
-**Angelo Maia dos Anjos** *(conforme o modelo fornecido; confirmar autoria do EnergyGuard antes da publicação).* 
+**Angelo Maia dos Anjos** 
+**Raynner Roque Ventura**(conforme o modelo fornecido; confirmar autoria do EnergyGuard antes da publicação).* 
 
 ## 👩‍🏫 Orientação
 
