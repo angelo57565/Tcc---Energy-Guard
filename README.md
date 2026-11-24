@@ -92,7 +92,7 @@ A aba **Sistema** disponibiliza indicadores de sinal Wi-Fi, tempo ligado, falhas
 
 ## 🔌 Protótipo físico
 
-A montagem experimental apresentada na fotografia inclui um **ESP32**, uma **protoboard**, fios de conexão, um **módulo de relé**, um **sensor de corrente do tipo garra** e componentes de condicionamento/medição. A interface identifica o **ZMPT101B** como módulo de tensão utilizado. O modelo exato do sensor de corrente deve ser confirmado no hardware ou no código.
+A montagem experimental apresentada na fotografia inclui um **ESP32**, uma **protoboard**, fios de conexão, um **módulo de relé**, um **sensor de corrente SCT-013** e componentes de condicionamento/medição. A interface identifica o **ZMPT101B** como módulo de tensão utilizado. O modelo exato do sensor de corrente deve ser confirmado no hardware ou no código.
 
 ![Protótipo físico do EnergyGuard](imagens/prototipo-fisico.jpg)
 
@@ -118,7 +118,7 @@ A montagem experimental apresentada na fotografia inclui um **ESP32**, uma **pro
 
 ## 🏠 Possíveis aplicações
 
-O EnergyGuard pode apoiar experimentos e estudos em **residências, laboratórios didáticos, salas de aula, bancadas de testes e projetos de automação**, desde que respeitadas as condições de segurança e as limitações de calibração e precisão.
+O EnergyGuard pode apoiar experimentos e estudos em **residências, laboratórios didáticos, salas de aula, bancadas de testes, e vista de consumo de dispositivos eletronicos caso esteja conectado a uma tomada ou no circuito eletrico e projetos de automação**, desde que respeitadas as condições de segurança e as limitações de calibração e precisão.
 
 O sistema foi concebido para auxiliar a observação de variações elétricas e tendências de consumo, não para substituir medidores homologados ou sistemas de proteção.
 
@@ -207,7 +207,7 @@ A execução depende da estrutura e das dependências reais do código-fonte. Co
 
 ## 💰 Custo do protótipo
 
-O projeto utiliza componentes acessíveis, mas **o custo total não foi informado**. Para registrar uma estimativa confiável, some os preços efetivos do ESP32, sensores, módulo de relé, protoboard, conexões, alimentação e itens de proteção elétrica utilizados.
+O projeto utiliza componentes acessíveis, mas o custo que houve vou de R$: 182,00.
 
 ## ⚠️ Limitações
 
@@ -223,11 +223,11 @@ O projeto utiliza componentes acessíveis, mas **o custo total não foi informad
 ## 👩‍💻 Integrantes
 
 **Angelo Maia dos Anjos** /
-**Raynner Roque Ventura**(conforme o modelo fornecido; confirmar autoria do EnergyGuard antes da publicação).* 
+**Raynner Roque Ventura**
 
 ## 👩‍🏫 Orientação
 
-**Professora MBA Luana Leal** *(conforme o modelo fornecido; confirmar orientação do EnergyGuard antes da publicação).* 
+**Professora MBA Luana Leal** 
 
 ## 📚 Contexto acadêmico
 
